@@ -101,11 +101,15 @@ user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
 SW_RESTORE = 9
 VK_CONTROL = 0x11
 VK_V = 0x56
+VK_A = 0x41
+VK_DELETE = 0x2E
+VK_ESCAPE = 0x1B
 VK_RETURN = 0x0D
 VK_MENU = 0x12
 KEYEVENTF_KEYUP = 0x0002
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_WHEEL = 0x0800
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 
@@ -164,7 +168,9 @@ def find_qq():
 
 
 def force_foreground(hwnd):
-    user32.ShowWindow(hwnd, SW_RESTORE)
+    # 注意：不要调用 ShowWindow(SW_RESTORE) —— 它会把窗口还原回「还原位置」
+    # （QQ 初次启动时可能在屏外如 (-242,8)），这正是批量发送时窗口漂出屏外、
+    # 后续 click/粘贴打偏的根因。这里只 attach 线程 + 置顶 + 设前景，不改变位置。
     fg = user32.GetForegroundWindow()
     t_fg = user32.GetWindowThreadProcessId(fg, None) if fg else 0
     t_me = kernel32.GetCurrentThreadId()
@@ -177,7 +183,7 @@ def force_foreground(hwnd):
     finally:
         if attached:
             user32.AttachThreadInput(t_me, t_fg, False)
-    time.sleep(0.25)
+    time.sleep(0.15)
 
 
 def set_clipboard_text(text):
@@ -223,15 +229,39 @@ def key_press(vk):
     user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
 
 
-def ctrl_v():
+def ctrl_combo(vk):
+    """按下 Ctrl + <vk> 再释放。"""
     user32.keybd_event(VK_CONTROL, 0, 0, None)
     time.sleep(0.03)
-    user32.keybd_event(VK_V, 0, 0, None)
+    user32.keybd_event(vk, 0, 0, None)
     time.sleep(0.03)
-    user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, None)
+    user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
     time.sleep(0.03)
     user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, None)
     time.sleep(0.1)
+
+
+def clear_box():
+    """Ctrl+A 全选 + Delete 清空输入框，避免上一条残留导致本条被追加。"""
+    ctrl_combo(VK_A)
+    time.sleep(0.08)
+    key_press(VK_DELETE)
+    time.sleep(0.1)
+
+
+def ctrl_v():
+    ctrl_combo(VK_V)
+
+
+def wheel_at(x, y, delta, times):
+    """在 (x,y) 处滚动鼠标滚轮。delta>0 上滚，delta<0 下滚；每格 120。"""
+    user32.SetCursorPos(int(x), int(y))
+    time.sleep(0.1)
+    d = ctypes.c_ulong(delta & 0xFFFFFFFF).value
+    for _ in range(max(1, times)):
+        user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, d, None)
+        time.sleep(0.06)
+    time.sleep(0.15)
 
 
 def do_shot(out_path):
@@ -285,6 +315,16 @@ def main():
     p_shot = sub.add_parser("shot")
     p_shot.add_argument("--out", default="qq_win.png")
 
+    p_key = sub.add_parser("key")
+    p_key.add_argument("--vk", type=int, default=27, help="虚拟键码，默认 27=ESC")
+    p_key.add_argument("--times", type=int, default=1)
+
+    p_wheel = sub.add_parser("wheel")
+    p_wheel.add_argument("--click-x", type=int, default=600)
+    p_wheel.add_argument("--click-y", type=int, default=300)
+    p_wheel.add_argument("--delta", type=int, default=-600, help="负=下滚(看最新消息)，正=上滚")
+    p_wheel.add_argument("--times", type=int, default=5)
+
     p_send = sub.add_parser("send")
     p_send.add_argument("--text", default=None)
     p_send.add_argument("--file", default=None)
@@ -293,7 +333,10 @@ def main():
     p_send.add_argument("--click-x", type=int, default=700)
     p_send.add_argument("--click-y", type=int, default=560)
     p_send.add_argument("--enter", action="store_true")
+    p_send.add_argument("--clear", action="store_true", help="每条粘贴前先 Ctrl+A/Del 清空输入框（防残留追加）")
     p_send.add_argument("--delay", type=int, default=1200)
+    p_send.add_argument("--pin-every", type=int, default=0,
+                        help="每发送 N 条重新钉一次窗口（force_foreground+MoveWindow，防漂移）。0=只钉一次")
     p_send.add_argument("--no-move", action="store_true", help="不移动窗口（需自行保证窗口在屏内）")
     p_send.add_argument("--no-foreground", action="store_true")
 
@@ -324,17 +367,43 @@ def main():
         do_shot(out)
         return
 
+    if args.cmd == "key":
+        hwnd, title, r = find_qq()
+        if not hwnd:
+            print("ERR: no QQ window")
+            return
+        force_foreground(hwnd)
+        for _ in range(max(1, args.times)):
+            key_press(args.vk)
+            time.sleep(0.25)
+        print("key vk=%s x%s -> hwnd=%s" % (args.vk, args.times, hwnd))
+        return
+
+    if args.cmd == "wheel":
+        hwnd, title, r = find_qq()
+        if not hwnd:
+            print("ERR: no QQ window")
+            return
+        force_foreground(hwnd)
+        r = win_rect(hwnd)
+        wheel_at(r.left + args.click_x, r.top + args.click_y, args.delta, args.times)
+        print("wheel delta=%s x%s at (%s,%s)" % (args.delta, args.times, r.left + args.click_x, r.top + args.click_y))
+        return
+
     if args.cmd == "send":
         hwnd, title, r = find_qq()
         if not hwnd:
             print("ERR: no QQ window")
             return
+        # 钉窗口一次：先置前（不再用 SW_RESTORE，避免还原到屏外旧位置），再归位到 (40,40)。
+        if not args.no_foreground:
+            force_foreground(hwnd)
         if not args.no_move:
             user32.MoveWindow(hwnd, 40, 40, 980, 660, True)
             time.sleep(0.3)
-        if not args.no_foreground:
-            force_foreground(hwnd)
         r = win_rect(hwnd)
+        if r.left < 0 or r.top < 0:
+            print("WARN: window rect still off-screen: (%s,%s,%s,%s)" % (r.left, r.top, r.right, r.bottom))
         abs_x, abs_y = r.left + args.click_x, r.top + args.click_y
         items = []
         if args.text is not None:
@@ -347,17 +416,29 @@ def main():
                         items.append(line)
         if args.limit > 0:
             items = items[:args.limit]
-        print("target hwnd=%s title=%r rect=(%s,%s,%s,%s) items=%d click_abs=(%s,%s) enter=%s" %
-              (hwnd, title, r.left, r.top, r.right, r.bottom, len(items), abs_x, abs_y, args.enter))
+        print("target hwnd=%s title=%r rect=(%s,%s,%s,%s) items=%d click_abs=(%s,%s) enter=%s pin_every=%s" %
+              (hwnd, title, r.left, r.top, r.right, r.bottom, len(items), abs_x, abs_y, args.enter, args.pin_every))
         click_at(abs_x, abs_y)
         for i, t in enumerate(items):
+            if args.clear:
+                clear_box()
             ok = set_clipboard_text(t)
-            time.sleep(0.12)
+            time.sleep(0.1)
             ctrl_v()
-            time.sleep(0.3)
+            time.sleep(0.25)
             if args.enter:
                 key_press(VK_RETURN)
-            print("[%d] %s pasted=%s len=%d" % (i + 1, repr(t[:60]), ok, len(t)))
+            # 记录发送时间点，便于与接收端回显对照
+            print("[%d] %s pasted=%s len=%d t=%s" %
+                  (i + 1, repr(t[:60]), ok, len(t), time.strftime("%H:%M:%S")))
+            # 每 N 条重新钉一次窗口（防长时间批量下窗口漂移），顺序无关紧要
+            # 因为 force_foreground 已不再使用 SW_RESTORE。
+            if args.pin_every > 0 and (i + 1) % args.pin_every == 0 and i < len(items) - 1:
+                if not args.no_foreground:
+                    force_foreground(hwnd)
+                if not args.no_move:
+                    user32.MoveWindow(hwnd, 40, 40, 980, 660, True)
+                    time.sleep(0.12)
             if i < len(items) - 1:
                 time.sleep(args.delay / 1000.0)
         print("done.")
