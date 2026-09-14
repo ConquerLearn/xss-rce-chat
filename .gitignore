@@ -1,0 +1,16 @@
+# --- 临时诊断脚本与日志（过程产物，非机制本身）---
+_*.ps1
+_*.txt
+
+# --- 依赖（核心机制不依赖；CDP 路线已弃用）---
+node_modules/
+
+# --- 大模型生成的 payload 数据（可由 expand_payloads.py 再生）---
+payload_expanded.txt
+payload_real_clean.txt
+
+# --- 被取代/弃用的诊断脚本（qq_gui.py 已替代 win_shot.py）---
+win_shot.py
+
+# --- 截图证据（二进制，不纳入核心机制）---
+*.png

